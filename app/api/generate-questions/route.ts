@@ -25,18 +25,19 @@ export async function POST(req: Request) {
     const genAI = new GoogleGenerativeAI(apiKey);
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { examId, part = "Part 5", count = 5 } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const part = body.part || "Part 5";
+    const count = body.count || 5;
+    const examId = body.examId || null;
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      generationConfig: { responseMimeType: "application/json" },
-    });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const prompt = `
       Bạn là chuyên gia biên soạn đề thi TOEIC chuẩn ETS. 
       Hãy sinh ngẫu nhiên ${count} câu hỏi TOEIC ${part}.
       
-      Yêu cầu đầu ra bắt buộc là một MẢNG JSON thuần túy chứa các object với cấu trúc chính xác như sau:
+      Yêu cầu bắt buộc: Chỉ trả về mảng JSON thuần túy, không dùng cú pháp markdown codeblock.
+      Cấu trúc:
       [
         {
           "question_text": "Nội dung câu hỏi TOEIC (tiếng Anh)",
@@ -48,16 +49,33 @@ export async function POST(req: Request) {
           "explanation": "Giải thích chi tiết đáp án bằng tiếng Việt"
         }
       ]
-      Chú ý: "correct_option" chỉ được nhận 1 trong 4 giá trị viết hoa: "A", "B", "C", hoặc "D".
     `;
 
     const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-    const generatedQuestions = JSON.parse(responseText);
+    let responseText = result.response.text();
+
+    // Làm sạch chuỗi nếu AI tự động chèn ký tự markdown ```json
+    responseText = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
+
+    let generatedQuestions;
+    try {
+      generatedQuestions = JSON.parse(responseText);
+    } catch (e) {
+      return NextResponse.json(
+        { success: false, error: `AI trả về định dạng chưa chuẩn: ${responseText}` },
+        { status: 500 }
+      );
+    }
 
     const questionsToInsert = generatedQuestions.map((q: any) => ({
-      ...q,
-      exam_id: examId || null,
+      question_text: q.question_text || "",
+      option_a: q.option_a || "",
+      option_b: q.option_b || "",
+      option_c: q.option_c || "",
+      option_d: q.option_d || "",
+      correct_option: q.correct_option || "A",
+      explanation: q.explanation || "",
+      exam_id: examId,
     }));
 
     const { data, error } = await supabase
@@ -66,15 +84,15 @@ export async function POST(req: Request) {
       .select();
 
     if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      return NextResponse.json({ success: false, error: `Lỗi Supabase: ${error.message}` }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      message: `Đã sinh thành công ${data.length} câu hỏi TOEIC mới vào Supabase!`,
+      message: `Đã sinh thành công ${data?.length || 0} câu hỏi TOEIC mới vào Supabase!`,
       questions: data,
     });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err.message || "Lỗi không xác định" }, { status: 500 });
   }
 }
