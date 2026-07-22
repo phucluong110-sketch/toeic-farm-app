@@ -2,17 +2,31 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
 
-// Khởi tạo Gemini & Supabase Client
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseKey);
-
 export async function POST(req: Request) {
   try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { success: false, error: "Thiếu GEMINI_API_KEY trên Vercel Environment Variables!" },
+        { status: 400 }
+      );
+    }
+
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json(
+        { success: false, error: "Thiếu cấu hình Supabase URL / Key!" },
+        { status: 400 }
+      );
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const { examId, part = "Part 5", count = 5 } = await req.json();
 
-    // Dùng model gemini-1.5-flash siêu nhanh và miễn phí
     const model = genAI.getGenerativeModel({
       model: "gemini-1.5-flash",
       generationConfig: { responseMimeType: "application/json" },
@@ -37,18 +51,15 @@ export async function POST(req: Request) {
       Chú ý: "correct_option" chỉ được nhận 1 trong 4 giá trị viết hoa: "A", "B", "C", hoặc "D".
     `;
 
-    // Gọi Gemini AI sinh câu hỏi
     const result = await model.generateContent(prompt);
     const responseText = result.response.text();
     const generatedQuestions = JSON.parse(responseText);
 
-    // Gán exam_id nếu có
     const questionsToInsert = generatedQuestions.map((q: any) => ({
       ...q,
       exam_id: examId || null,
     }));
 
-    // Bơm trực tiếp câu hỏi vừa tạo vào bảng 'questions' của Supabase
     const { data, error } = await supabase
       .from("questions")
       .insert(questionsToInsert)
