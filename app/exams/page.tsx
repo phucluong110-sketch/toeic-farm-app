@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState, use } from "react";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
 // Khởi tạo Supabase Client
@@ -7,7 +8,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// 🎲 Thuật toán Fisher-Yates (Xáo trộn chuẩn 100% không bao giờ lặp câu)
+// 🎲 Thuật toán Fisher-Yates (Xáo trộn chuẩn 100% không trùng lặp)
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -17,9 +18,10 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
-export default function ExamPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const examId = resolvedParams.id;
+export default function ExamPage() {
+  // Lấy params an toàn chuẩn Next.js
+  const params = useParams();
+  const examId = params?.id;
 
   const [questions, setQuestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,7 +34,6 @@ export default function ExamPage({ params }: { params: Promise<{ id: string }> }
       const { data, error } = await supabase.from("questions").select("*");
 
       if (data && data.length > 0) {
-        // Xáo trộn ngẫu nhiên danh sách câu hỏi bằng Fisher-Yates
         setQuestions(shuffleArray(data));
       }
       setLoading(false);
@@ -42,7 +43,7 @@ export default function ExamPage({ params }: { params: Promise<{ id: string }> }
   }, [examId]);
 
   const handleSelectOption = (qIndex: number, option: string) => {
-    setUserAnswers({ ...userAnswers, [qIndex]: option });
+    setUserAnswers((prev) => ({ ...prev, [qIndex]: option }));
   };
 
   if (loading) {
